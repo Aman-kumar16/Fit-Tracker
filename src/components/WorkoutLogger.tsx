@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, getDocs, doc, setDoc, query, orderBy, where, limit } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, addDoc, query, orderBy, where, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Exercise, WorkoutSet, LastRecord } from '@/types/workout';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { format } from 'date-fns';
 import { Calendar as CalendarIcon, Plus, Trash2, TrendingUp } from 'lucide-react';
 import { toast } from 'sonner';
@@ -19,6 +20,8 @@ export const WorkoutLogger = () => {
   const [sets, setSets] = useState<WorkoutSet[]>([]);
   const [lastRecord, setLastRecord] = useState<LastRecord | null>(null);
   const [loading, setLoading] = useState(true);
+  const [newExerciseName, setNewExerciseName] = useState('');
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   useEffect(() => {
     loadExercises();
@@ -130,6 +133,28 @@ export const WorkoutLogger = () => {
     setSets(newSets);
   };
 
+  const addExercise = async () => {
+    if (!newExerciseName.trim()) {
+      toast.error('Please enter an exercise name');
+      return;
+    }
+
+    try {
+      await addDoc(collection(db, 'exercises'), {
+        name: newExerciseName.trim(),
+        createdAt: new Date(),
+      });
+      
+      setNewExerciseName('');
+      setDialogOpen(false);
+      toast.success('Exercise added');
+      loadExercises();
+    } catch (error) {
+      console.error('Error adding exercise:', error);
+      toast.error('Failed to add exercise');
+    }
+  };
+
   const saveWorkout = async () => {
     if (!selectedExercise || sets.length === 0) return;
 
@@ -196,10 +221,38 @@ export const WorkoutLogger = () => {
 
       {!selectedExercise ? (
         <div className="grid gap-3">
-          <h3 className="text-lg font-semibold">Select an exercise to log</h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Select an exercise to log</h3>
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+              <DialogTrigger asChild>
+                <Button className="gap-2">
+                  <Plus className="w-4 h-4" />
+                  New Exercise
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Add New Exercise</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 pt-4">
+                  <Input
+                    placeholder="Exercise name (e.g., Bench Press)"
+                    value={newExerciseName}
+                    onChange={(e) => setNewExerciseName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && addExercise()}
+                    className="bg-secondary border-border"
+                  />
+                  <Button onClick={addExercise} className="w-full gap-2">
+                    <Plus className="w-4 h-4" />
+                    Add Exercise
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
           {exercises.length === 0 ? (
             <Card className="p-8 text-center bg-card border-border">
-              <p className="text-muted-foreground">No exercises available. Add exercises first!</p>
+              <p className="text-muted-foreground">No exercises yet. Click "New Exercise" to add one!</p>
             </Card>
           ) : (
             exercises.map((exercise) => (
