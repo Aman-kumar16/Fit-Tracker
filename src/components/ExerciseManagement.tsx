@@ -84,6 +84,11 @@ export const ExerciseManagement = () => {
     });
   };
 
+  // Apply sorting for better user experience
+  const sortedExercises = [...exercises].sort((a, b) =>
+    a.name.localeCompare(b.name)
+  );
+
   // For Recommendation of matches
   const handleInputChange = (value: string) => {
     setNewExerciseName(value);
@@ -220,7 +225,7 @@ export const ExerciseManagement = () => {
       </div>
 
       <div className="grid gap-3">
-        {exercises.length === 0 ? (
+        {sortedExercises.length === 0 ? (
           <Card className="p-8 text-center bg-card border-border">
             <Dumbbell className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
             <p className="text-muted-foreground">
@@ -228,7 +233,7 @@ export const ExerciseManagement = () => {
             </p>
           </Card>
         ) : (
-          exercises.map((exercise) => (
+          sortedExercises.map((exercise) => (
             <Card
               key={exercise.id}
               className="p-4 bg-card border-border hover:border-primary/50 transition-all"
