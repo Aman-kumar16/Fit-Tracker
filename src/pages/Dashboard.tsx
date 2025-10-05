@@ -6,7 +6,7 @@ import { Dumbbell, ClipboardList } from "lucide-react";
 import LogoutButton from "@/components/LogoutButton";
 
 const Index = () => {
-  const [activeTab, setActiveTab] = useState("workouts");
+  const [activeTab, setActiveTab] = useState("exercises");
 
   return (
     <div className="min-h-screen p-4 md:p-8 bg-black text-white">
@@ -40,22 +40,22 @@ const Index = () => {
           className="space-y-6"
         >
           <TabsList className="grid w-full grid-cols-2 bg-secondary">
-            <TabsTrigger value="workouts" className="gap-2">
-              <ClipboardList className="w-4 h-4" />
-              Workouts
-            </TabsTrigger>
             <TabsTrigger value="exercises" className="gap-2">
               <Dumbbell className="w-4 h-4" />
               Exercises
             </TabsTrigger>
+            <TabsTrigger value="workouts" className="gap-2">
+              <ClipboardList className="w-4 h-4" />
+              Workouts
+            </TabsTrigger>
           </TabsList>
-
-          <TabsContent value="workouts" className="space-y-6">
-            <WorkoutLogger />
-          </TabsContent>
 
           <TabsContent value="exercises" className="space-y-6">
             <ExerciseManagement />
+          </TabsContent>
+
+          <TabsContent value="workouts" className="space-y-6">
+            <WorkoutLogger />
           </TabsContent>
         </Tabs>
       </div>
