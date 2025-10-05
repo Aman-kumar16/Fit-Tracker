@@ -1,24 +1,132 @@
-import { useState, useEffect } from 'react';
-import { collection, getDocs, doc, setDoc, query, orderBy, where, limit } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { Exercise, WorkoutSet, LastRecord } from '@/types/workout';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card } from '@/components/ui/card';
-import { Calendar } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { format } from 'date-fns';
-import { Calendar as CalendarIcon, Plus, Trash2, TrendingUp } from 'lucide-react';
-import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
+import { useState, useEffect, useCallback } from "react";
+import {
+  collection,
+  getDocs,
+  doc,
+  setDoc,
+  query,
+  orderBy,
+  where,
+  limit,
+} from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import { Exercise, WorkoutSet, LastRecord } from "@/types/workout";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { format } from "date-fns";
+import {
+  Calendar as CalendarIcon,
+  Plus,
+  Trash2,
+  TrendingUp,
+} from "lucide-react";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 export const WorkoutLogger = () => {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [exercises, setExercises] = useState<Exercise[]>([]);
-  const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
+  const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(
+    null
+  );
   const [sets, setSets] = useState<WorkoutSet[]>([]);
   const [lastRecord, setLastRecord] = useState<LastRecord | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const loadWorkoutForDate = useCallback(async () => {
+    if (!selectedExercise) return;
+
+    const dateStr = format(selectedDate, "yyyy-MM-dd");
+    try {
+      const workoutRef = doc(
+        db,
+        "workouts",
+        dateStr,
+        "exercises",
+        selectedExercise.id
+      );
+      const snapshot = await getDocs(collection(workoutRef, "sets"));
+
+      if (!snapshot.empty) {
+        const loadedSets = snapshot.docs.map((doc) => ({
+          weight: doc.data().weight,
+          reps: doc.data().reps,
+          timestamp: doc.data().timestamp.toDate(),
+        }));
+        setSets(loadedSets);
+      } else {
+        setSets([{ weight: 0, reps: 0, timestamp: new Date() }]);
+      }
+    } catch (error) {
+      console.error("Error loading workout:", error);
+      setSets([{ weight: 0, reps: 0, timestamp: new Date() }]);
+    }
+  }, [selectedExercise, selectedDate, setSets]);
+
+  const loadLastRecord = useCallback(async () => {
+    if (!selectedExercise) return;
+
+    // currentDateStr is derived from selectedDate, so selectedDate is a dependency.
+    const currentDateStr = format(selectedDate, "yyyy-MM-dd");
+
+    try {
+      // Query all workouts before current date
+      const workoutsRef = collection(db, "workouts");
+      const q = query(
+        workoutsRef,
+        where("__name__", "<", currentDateStr),
+        orderBy("__name__", "desc"),
+        limit(50)
+      );
+
+      const snapshot = await getDocs(q);
+
+      // Find the most recent workout with this exercise
+      for (const workoutDoc of snapshot.docs) {
+        // ... (Firestore logic remains the same) ...
+
+        const exerciseRef = doc(
+          db,
+          "workouts",
+          workoutDoc.id,
+          "exercises",
+          selectedExercise.id // Uses selectedExercise
+        );
+        const setsSnapshot = await getDocs(collection(exerciseRef, "sets"));
+
+        if (!setsSnapshot.empty) {
+          const previousSets = setsSnapshot.docs.map((doc) => ({
+            weight: doc.data().weight,
+            reps: doc.data().reps,
+            timestamp: doc.data().timestamp.toDate(),
+          }));
+
+          setLastRecord({
+            // Uses setLastRecord
+            date: workoutDoc.id,
+            sets: previousSets,
+          });
+          return;
+        }
+      }
+
+      setLastRecord(null); // Uses setLastRecord
+    } catch (error) {
+      console.error("Error loading last record:", error);
+      setLastRecord(null); // Uses setLastRecord
+    }
+  }, [
+    selectedExercise, // Required because the function uses selectedExercise.id
+    selectedDate, // Required because the function uses selectedDate to calculate currentDateStr
+    setLastRecord, // Required because the function calls this setter
+  ]);
 
   useEffect(() => {
     loadExercises();
@@ -29,90 +137,22 @@ export const WorkoutLogger = () => {
       loadWorkoutForDate();
       loadLastRecord();
     }
-  }, [selectedExercise, selectedDate]);
+  }, [selectedExercise, selectedDate, loadWorkoutForDate, loadLastRecord]);
 
   const loadExercises = async () => {
     try {
-      const snapshot = await getDocs(collection(db, 'exercises'));
-      const exerciseList = snapshot.docs.map(doc => ({
+      const snapshot = await getDocs(collection(db, "exercises"));
+      const exerciseList = snapshot.docs.map((doc) => ({
         id: doc.id,
         name: doc.data().name,
         createdAt: doc.data().createdAt.toDate(),
       }));
       setExercises(exerciseList);
     } catch (error) {
-      console.error('Error loading exercises:', error);
-      toast.error('Failed to load exercises');
+      console.error("Error loading exercises:", error);
+      toast.error("Failed to load exercises");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const loadWorkoutForDate = async () => {
-    if (!selectedExercise) return;
-
-    const dateStr = format(selectedDate, 'yyyy-MM-dd');
-    try {
-      const workoutRef = doc(db, 'workouts', dateStr, 'exercises', selectedExercise.id);
-      const snapshot = await getDocs(collection(workoutRef, 'sets'));
-      
-      if (!snapshot.empty) {
-        const loadedSets = snapshot.docs.map(doc => ({
-          weight: doc.data().weight,
-          reps: doc.data().reps,
-          timestamp: doc.data().timestamp.toDate(),
-        }));
-        setSets(loadedSets);
-      } else {
-        setSets([{ weight: 0, reps: 0, timestamp: new Date() }]);
-      }
-    } catch (error) {
-      console.error('Error loading workout:', error);
-      setSets([{ weight: 0, reps: 0, timestamp: new Date() }]);
-    }
-  };
-
-  const loadLastRecord = async () => {
-    if (!selectedExercise) return;
-
-    const currentDateStr = format(selectedDate, 'yyyy-MM-dd');
-    
-    try {
-      // Query all workouts before current date
-      const workoutsRef = collection(db, 'workouts');
-      const q = query(
-        workoutsRef,
-        where('__name__', '<', currentDateStr),
-        orderBy('__name__', 'desc'),
-        limit(50)
-      );
-      
-      const snapshot = await getDocs(q);
-      
-      // Find the most recent workout with this exercise
-      for (const workoutDoc of snapshot.docs) {
-        const exerciseRef = doc(db, 'workouts', workoutDoc.id, 'exercises', selectedExercise.id);
-        const setsSnapshot = await getDocs(collection(exerciseRef, 'sets'));
-        
-        if (!setsSnapshot.empty) {
-          const previousSets = setsSnapshot.docs.map(doc => ({
-            weight: doc.data().weight,
-            reps: doc.data().reps,
-            timestamp: doc.data().timestamp.toDate(),
-          }));
-          
-          setLastRecord({
-            date: workoutDoc.id,
-            sets: previousSets,
-          });
-          return;
-        }
-      }
-      
-      setLastRecord(null);
-    } catch (error) {
-      console.error('Error loading last record:', error);
-      setLastRecord(null);
     }
   };
 
@@ -124,7 +164,11 @@ export const WorkoutLogger = () => {
     setSets(sets.filter((_, i) => i !== index));
   };
 
-  const updateSet = (index: number, field: 'weight' | 'reps', value: number) => {
+  const updateSet = (
+    index: number,
+    field: "weight" | "reps",
+    value: number
+  ) => {
     const newSets = [...sets];
     newSets[index] = { ...newSets[index], [field]: value };
     setSets(newSets);
@@ -133,17 +177,27 @@ export const WorkoutLogger = () => {
   const saveWorkout = async () => {
     if (!selectedExercise || sets.length === 0) return;
 
-    const dateStr = format(selectedDate, 'yyyy-MM-dd');
-    
+    const dateStr = format(selectedDate, "yyyy-MM-dd");
+
     try {
       // Save workout metadata
-      await setDoc(doc(db, 'workouts', dateStr), {
-        date: dateStr,
-        updatedAt: new Date(),
-      }, { merge: true });
+      await setDoc(
+        doc(db, "workouts", dateStr),
+        {
+          date: dateStr,
+          updatedAt: new Date(),
+        },
+        { merge: true }
+      );
 
       // Save exercise data
-      const exerciseRef = doc(db, 'workouts', dateStr, 'exercises', selectedExercise.id);
+      const exerciseRef = doc(
+        db,
+        "workouts",
+        dateStr,
+        "exercises",
+        selectedExercise.id
+      );
       await setDoc(exerciseRef, {
         exerciseName: selectedExercise.name,
         updatedAt: new Date(),
@@ -151,16 +205,16 @@ export const WorkoutLogger = () => {
 
       // Save sets
       for (let i = 0; i < sets.length; i++) {
-        await setDoc(doc(exerciseRef, 'sets', `set-${i}`), {
+        await setDoc(doc(exerciseRef, "sets", `set-${i}`), {
           ...sets[i],
           timestamp: new Date(),
         });
       }
 
-      toast.success('Workout saved!');
+      toast.success("Workout saved!");
     } catch (error) {
-      console.error('Error saving workout:', error);
-      toast.error('Failed to save workout');
+      console.error("Error saving workout:", error);
+      toast.error("Failed to save workout");
     }
   };
 
@@ -179,7 +233,7 @@ export const WorkoutLogger = () => {
           <PopoverTrigger asChild>
             <Button variant="outline" className="gap-2">
               <CalendarIcon className="w-4 h-4" />
-              {format(selectedDate, 'PPP')}
+              {format(selectedDate, "PPP")}
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-auto p-0" align="start">
@@ -199,7 +253,9 @@ export const WorkoutLogger = () => {
           <h3 className="text-lg font-semibold">Select an exercise to log</h3>
           {exercises.length === 0 ? (
             <Card className="p-8 text-center bg-card border-border">
-              <p className="text-muted-foreground">No exercises available. Add exercises first!</p>
+              <p className="text-muted-foreground">
+                No exercises available. Add exercises first!
+              </p>
             </Card>
           ) : (
             exercises.map((exercise) => (
@@ -227,7 +283,8 @@ export const WorkoutLogger = () => {
               <div className="flex items-center gap-2 mb-2">
                 <TrendingUp className="w-4 h-4 text-accent" />
                 <span className="font-semibold text-accent">
-                  Last Record ({format(new Date(lastRecord.date), 'MMM d, yyyy')})
+                  Last Record (
+                  {format(new Date(lastRecord.date), "MMM d, yyyy")})
                 </span>
               </div>
               <div className="space-y-1 text-sm">
@@ -250,19 +307,32 @@ export const WorkoutLogger = () => {
               </div>
 
               {sets.map((set, index) => (
-                <div key={index} className="grid grid-cols-[auto,1fr,1fr,auto] gap-3 items-center">
-                  <div className="w-8 text-center font-bold text-primary">{index + 1}</div>
+                <div
+                  key={index}
+                  className="grid grid-cols-[auto,1fr,1fr,auto] gap-3 items-center"
+                >
+                  <div className="w-8 text-center font-bold text-primary">
+                    {index + 1}
+                  </div>
                   <Input
                     type="number"
-                    value={set.weight || ''}
-                    onChange={(e) => updateSet(index, 'weight', parseFloat(e.target.value) || 0)}
+                    value={set.weight || ""}
+                    onChange={(e) =>
+                      updateSet(
+                        index,
+                        "weight",
+                        parseFloat(e.target.value) || 0
+                      )
+                    }
                     className="bg-secondary border-border text-center text-lg font-semibold"
                     placeholder="0"
                   />
                   <Input
                     type="number"
-                    value={set.reps || ''}
-                    onChange={(e) => updateSet(index, 'reps', parseInt(e.target.value) || 0)}
+                    value={set.reps || ""}
+                    onChange={(e) =>
+                      updateSet(index, "reps", parseInt(e.target.value) || 0)
+                    }
                     className="bg-secondary border-border text-center text-lg font-semibold"
                     placeholder="0"
                   />
@@ -277,7 +347,11 @@ export const WorkoutLogger = () => {
                 </div>
               ))}
 
-              <Button onClick={addSet} variant="outline" className="w-full gap-2">
+              <Button
+                onClick={addSet}
+                variant="outline"
+                className="w-full gap-2"
+              >
                 <Plus className="w-4 h-4" />
                 Add Set
               </Button>
