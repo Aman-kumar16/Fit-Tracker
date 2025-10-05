@@ -1,41 +1,62 @@
-import { useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card } from '@/components/ui/card';
-import { Plus, Dumbbell } from 'lucide-react';
-import { toast } from 'sonner';
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Exercise } from "@/types/workout";
+import { Plus, Dumbbell, Trash } from "lucide-react";
+import { toast } from "sonner";
 
-import { useExercises } from '@/hooks/useExercises';
-import { useAddExercise } from '@/hooks/useAddExercise';
+import { useDeleteExercise } from "@/hooks/useDeleteExercise";
+import { checkExerciseDependencies } from "@/hooks/useCheckExerciseDependencies";
+import { useExercises } from "@/hooks/useExercises";
+import { useAddExercise } from "@/hooks/useAddExercise";
 
 export const ExerciseManagement = () => {
   // State for the input field
-  const [newExerciseName, setNewExerciseName] = useState('');
+  const [newExerciseName, setNewExerciseName] = useState("");
 
   // NEW State for suggestions:
-const [suggestions, setSuggestions] = useState<Exercise[]>([]); 
-const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [suggestions, setSuggestions] = useState<Exercise[]>([]);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+
+  // For Deletion
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [exerciseToDelete, setExerciseToDelete] = useState<Exercise | null>(
+    null
+  );
+  const [dependentWorkoutCount, setDependentWorkoutCount] = useState<number>(0);
+
+  const { mutate: deleteExerciseMutation, isPending: isDeleting } =
+    useDeleteExercise();
 
   // 1. USE REACT QUERY HOOKS FOR DATA
-  const { 
+  const {
     data: exercises = [], // Default to an empty array while loading
-    isLoading, 
-    isError 
-  } = useExercises(); 
+    isLoading,
+    isError,
+  } = useExercises();
 
-  const { 
-    mutate: addExerciseMutation, 
-    isPending: isAdding 
-  } = useAddExercise();
+  const { mutate: addExerciseMutation, isPending: isAdding } = useAddExercise();
 
   const handleAddExercise = () => {
     const nameToSave = newExerciseName.trim();
 
     if (!nameToSave) {
-      toast.error('Please enter an exercise name(e.g., Bench Press');
+      toast.error("Please enter an exercise name(e.g., Bench Press");
       return;
     }
-    
+
     // 2. DUPLICATE CHECK LOGIC (V2 Feature)
     // Check if the trimmed, lowercased name already exists in the current list
     const isDuplicate = exercises.some(
@@ -43,51 +64,94 @@ const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     );
 
     if (isDuplicate) {
-      toast.error(`Exercise "${nameToSave}" already exists.`, { duration: 3000 });
+      toast.error(`Exercise "${nameToSave}" already exists.`, {
+        duration: 3000,
+      });
       return;
     }
-    
+
     // 3. PROCEED TO MUTATION
     addExerciseMutation(nameToSave, {
       onSuccess: () => {
-        setNewExerciseName('');
+        setNewExerciseName("");
         toast.success(`Exercise "${nameToSave}" added!`);
         // The list automatically re-fetches thanks to React Query
       },
       onError: (error) => {
-        console.error('Error adding exercise:', error);
-        toast.error('Failed to add exercise.');
+        console.error("Error adding exercise:", error);
+        toast.error("Failed to add exercise.");
       },
     });
   };
 
+  // Apply sorting for better user experience
+  const sortedExercises = [...exercises].sort((a, b) =>
+    a.name.localeCompare(b.name)
+  );
+
+  // For Recommendation of matches
   const handleInputChange = (value: string) => {
-  setNewExerciseName(value);
+    setNewExerciseName(value);
 
-  const trimmedValue = value.trim().toLowerCase();
-  
-  if (trimmedValue.length > 0) {
-    // Filter the full list of exercises from the React Query data
-    const filtered = exercises.filter((ex) =>
-      ex.name.toLowerCase().includes(trimmedValue)
-    ).slice(0, 5); // Limit to top 5 matches for cleaner UI
-    
-    setSuggestions(filtered);
-    setIsDropdownOpen(filtered.length > 0);
-  } else {
-    setSuggestions([]);
-    setIsDropdownOpen(false);
-  }
-};
+    const trimmedValue = value.trim().toLowerCase();
 
-// Function to handle clicking a suggestion
-const handleSelectSuggestion = (exerciseName: string) => {
+    if (trimmedValue.length > 0) {
+      // Filter the full list of exercises from the React Query data
+      const filtered = exercises
+        .filter((ex) => ex.name.toLowerCase().includes(trimmedValue))
+        .slice(0, 5); // Limit to top 5 matches for cleaner UI
+
+      setSuggestions(filtered);
+      setIsDropdownOpen(filtered.length > 0);
+    } else {
+      setSuggestions([]);
+      setIsDropdownOpen(false);
+    }
+  };
+
+  // Function to handle clicking a suggestion
+  const handleSelectSuggestion = (exerciseName: string) => {
     // Set the input value to the exact selected name
-    setNewExerciseName(exerciseName); 
+    setNewExerciseName(exerciseName);
     // Close the dropdown
     setIsDropdownOpen(false);
     // You could also auto-focus the "Add" button here for better flow
-}
+  };
+
+  // To handle Deletion
+  const confirmDelete = async (exercise: Exercise) => {
+    setExerciseToDelete(exercise);
+
+    // Check for dependencies right before opening the dialog
+    const count = await checkExerciseDependencies(exercise.id);
+    setDependentWorkoutCount(count);
+
+    setIsDialogOpen(true);
+  };
+
+  const handleDelete = (cleanupWorkouts: boolean) => {
+    if (!exerciseToDelete) return;
+
+    const exerciseName = exerciseToDelete.name;
+    const exerciseId = exerciseToDelete.id;
+
+    deleteExerciseMutation(
+      { id: exerciseId, cleanupWorkouts },
+      {
+        onSuccess: () => {
+          toast.success(`Exercise "${exerciseName}" successfully deleted.`);
+        },
+        onError: () => {
+          toast.error(`Failed to delete exercise "${exerciseName}".`);
+        },
+        onSettled: () => {
+          // Close dialog regardless of success/fail
+          setIsDialogOpen(false);
+          setExerciseToDelete(null);
+        },
+      }
+    );
+  };
 
   if (isLoading) {
     return (
@@ -99,79 +163,148 @@ const handleSelectSuggestion = (exerciseName: string) => {
 
   if (isError) {
     // Better error message for the user if the fetch fails
-    return <div className="text-center text-red-500 min-h-[400px]">Failed to load exercises. Please try again.</div>;
+    return (
+      <div className="text-center text-red-500 min-h-[400px]">
+        Failed to load exercises. Please try again.
+      </div>
+    );
   }
-  
-  // NOTE: We can now implement the Autocomplete dropdown logic here 
+
+  // NOTE: We can now implement the Autocomplete dropdown logic here
   // by filtering the `exercises` array as the user types in `newExerciseName`.
 
   return (
- <div className="space-y-6">
-    {/* Use relative positioning for the dropdown container */}
-    <div className="relative flex gap-3"> 
-      {/* Input Field */}
-      <Input
-        placeholder="Exercise name (e.g., Bench Press)"
-        value={newExerciseName}
-        // Use the new handler
-        onChange={(e) => handleInputChange(e.target.value)} 
-        // Hide dropdown if the user presses Tab or Escape to exit the field
-        onBlur={() => setTimeout(() => setIsDropdownOpen(false), 200)}
-        onFocus={() => handleInputChange(newExerciseName)} // Re-filter if focused again
-        onKeyDown={(e) => e.key === 'Enter' && handleAddExercise()}
-        className="flex-1 bg-secondary border-border"
-        disabled={isAdding}
-      />
-      
-      {/* Autocomplete Dropdown */}
-      {isDropdownOpen && suggestions.length > 0 && (
-        <Card className="absolute top-full mt-1 w-full z-10 p-1">
-          {suggestions.map((exercise) => (
-            <div
-              key={exercise.id}
-              className="px-3 py-2 text-sm cursor-pointer hover:bg-primary/10 rounded-md"
-              // Use onMouseDown instead of onClick to prevent onBlur from firing first
-              onMouseDown={() => handleSelectSuggestion(exercise.name)} 
-            >
-              {exercise.name}
-            </div>
-          ))}
-        </Card>
-      )}
+    <div className="space-y-6">
+      {/* Use relative positioning for the dropdown container */}
+      <div className="relative flex gap-3">
+        {/* Input Field */}
+        <Input
+          placeholder="Exercise name (e.g., Bench Press)"
+          value={newExerciseName}
+          // Use the new handler
+          onChange={(e) => handleInputChange(e.target.value)}
+          // Hide dropdown if the user presses Tab or Escape to exit the field
+          onBlur={() => setTimeout(() => setIsDropdownOpen(false), 200)}
+          onFocus={() => handleInputChange(newExerciseName)} // Re-filter if focused again
+          onKeyDown={(e) => e.key === "Enter" && handleAddExercise()}
+          className="flex-1 bg-secondary border-border"
+          disabled={isAdding}
+        />
 
-      {/* Button */}
-      <Button 
-        onClick={handleAddExercise} 
-        className="gap-2"
-        disabled={isAdding} 
-      >
-        {isAdding ? 'Adding...' : (
-          <>
-            <Plus className="w-4 h-4" />
-            Add
-          </>
+        {/* Autocomplete Dropdown */}
+        {isDropdownOpen && suggestions.length > 0 && (
+          <Card className="absolute top-full mt-1 w-full z-10 p-1">
+            {suggestions.map((exercise) => (
+              <div
+                key={exercise.id}
+                className="px-3 py-2 text-sm cursor-pointer hover:bg-primary/10 rounded-md"
+                // Use onMouseDown instead of onClick to prevent onBlur from firing first
+                onMouseDown={() => handleSelectSuggestion(exercise.name)}
+              >
+                {exercise.name}
+              </div>
+            ))}
+          </Card>
         )}
-      </Button>
-    </div>
+
+        {/* Button */}
+        <Button
+          onClick={handleAddExercise}
+          className="gap-2"
+          disabled={isAdding}
+        >
+          {isAdding ? (
+            "Adding..."
+          ) : (
+            <>
+              <Plus className="w-4 h-4" />
+              Add
+            </>
+          )}
+        </Button>
+      </div>
 
       <div className="grid gap-3">
-        {exercises.length === 0 ? (
+        {sortedExercises.length === 0 ? (
           <Card className="p-8 text-center bg-card border-border">
             <Dumbbell className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
-            <p className="text-muted-foreground">No exercises yet. Add your first exercise above!</p>
+            <p className="text-muted-foreground">
+              No exercises yet. Add your first exercise above!
+            </p>
           </Card>
         ) : (
-          exercises.map((exercise) => (
+          sortedExercises.map((exercise) => (
             <Card
               key={exercise.id}
               className="p-4 bg-card border-border hover:border-primary/50 transition-all"
             >
-              <div className="flex items-center gap-3">
-                <Dumbbell className="w-5 h-5 text-primary" />
-                <span className="font-semibold text-foreground">{exercise.name}</span>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Dumbbell className="w-5 h-5 text-primary" />
+                  <span className="font-semibold text-foreground">
+                    {exercise.name}
+                  </span>
+                </div>
+
+                {/* DELETE BUTTON */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-muted-foreground hover:text-red-500"
+                  onClick={() => confirmDelete(exercise)} // Call handler to open dialog
+                >
+                  <Trash className="w-4 h-4" />
+                </Button>
               </div>
             </Card>
           ))
+        )}
+
+        {/* CONFIRMATION DIALOG */}
+        {exerciseToDelete && (
+          <AlertDialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This action cannot be undone. You are about to delete the
+                  exercise:
+                  <span className="font-bold text-foreground">
+                    {" "}
+                    {exerciseToDelete.name}
+                  </span>
+                  .
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+
+              {/* Dependency Warning Section */}
+              {dependentWorkoutCount > 0 && (
+                <div className="p-4 bg-yellow-900/50 border border-yellow-500/50 rounded-md">
+                  <p className="font-semibold text-yellow-300">
+                    ⚠️ Dependency Warning:
+                  </p>
+                  <p className="text-sm mt-1 text-yellow-200">
+                    This exercise is currently used in **{dependentWorkoutCount}
+                    ** workout log(s). If you proceed, the exercise name in
+                    those workouts will be set to "Undefined".
+                  </p>
+                </div>
+              )}
+
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={isDeleting}>
+                  Cancel
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => handleDelete(dependentWorkoutCount > 0)}
+                  disabled={isDeleting}
+                  className="bg-red-600 hover:bg-red-700"
+                >
+                  {isDeleting ? "Deleting..." : "Delete Permanently"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         )}
       </div>
     </div>
