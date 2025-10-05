@@ -1,68 +1,78 @@
-import { useState, useEffect } from 'react';
-import { collection, addDoc, getDocs, query, orderBy } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { Exercise } from '@/types/workout';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Plus, Dumbbell } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { useExercises } from '@/hooks/useExercises';
+import { useAddExercise } from '@/hooks/useAddExercise';
+
 export const ExerciseManagement = () => {
-  const [exercises, setExercises] = useState<Exercise[]>([]);
+  // State for the input field
   const [newExerciseName, setNewExerciseName] = useState('');
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadExercises();
-  }, []);
+  // 1. USE REACT QUERY HOOKS FOR DATA
+  const { 
+    data: exercises = [], // Default to an empty array while loading
+    isLoading, 
+    isError 
+  } = useExercises(); 
 
-  const loadExercises = async () => {
-    try {
-      const q = query(collection(db, 'exercises'), orderBy('createdAt', 'desc'));
-      const snapshot = await getDocs(q);
-      const exerciseList = snapshot.docs.map(doc => ({
-        id: doc.id,
-        name: doc.data().name,
-        createdAt: doc.data().createdAt.toDate(),
-      }));
-      setExercises(exerciseList);
-    } catch (error) {
-      console.error('Error loading exercises:', error);
-      toast.error('Failed to load exercises');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { 
+    mutate: addExerciseMutation, 
+    isPending: isAdding 
+  } = useAddExercise();
 
-  const addExercise = async () => {
-    if (!newExerciseName.trim()) {
-      toast.error('Please enter an exercise name');
+  const handleAddExercise = () => {
+    const nameToSave = newExerciseName.trim();
+
+    if (!nameToSave) {
+      toast.error('Please enter an exercise name(e.g., Bench Press');
       return;
     }
+    
+    // 2. DUPLICATE CHECK LOGIC (V2 Feature)
+    // Check if the trimmed, lowercased name already exists in the current list
+    const isDuplicate = exercises.some(
+      (ex) => ex.name.trim().toLowerCase() === nameToSave.toLowerCase()
+    );
 
-    try {
-      await addDoc(collection(db, 'exercises'), {
-        name: newExerciseName.trim(),
-        createdAt: new Date(),
-      });
-      
+    if (isDuplicate) {
+      toast.error(`Exercise "${nameToSave}" already exists.`, { duration: 3000 });
       setNewExerciseName('');
-      toast.success('Exercise added');
-      loadExercises();
-    } catch (error) {
-      console.error('Error adding exercise:', error);
-      toast.error('Failed to add exercise');
+      return;
     }
+    
+    // 3. PROCEED TO MUTATION
+    addExerciseMutation(nameToSave, {
+      onSuccess: () => {
+        setNewExerciseName('');
+        toast.success(`Exercise "${nameToSave}" added!`);
+        // The list automatically re-fetches thanks to React Query
+      },
+      onError: (error) => {
+        console.error('Error adding exercise:', error);
+        toast.error('Failed to add exercise.');
+      },
+    });
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-muted-foreground">Loading exercises...</div>
       </div>
     );
   }
+
+  if (isError) {
+    // Better error message for the user if the fetch fails
+    return <div className="text-center text-red-500 min-h-[400px]">Failed to load exercises. Please try again.</div>;
+  }
+  
+  // NOTE: We can now implement the Autocomplete dropdown logic here 
+  // by filtering the `exercises` array as the user types in `newExerciseName`.
 
   return (
     <div className="space-y-6">
@@ -71,12 +81,22 @@ export const ExerciseManagement = () => {
           placeholder="Exercise name (e.g., Bench Press)"
           value={newExerciseName}
           onChange={(e) => setNewExerciseName(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && addExercise()}
+          // Use the refactored handler
+          onKeyDown={(e) => e.key === 'Enter' && handleAddExercise()} 
           className="flex-1 bg-secondary border-border"
+          disabled={isAdding} // Disable input while saving
         />
-        <Button onClick={addExercise} className="gap-2">
-          <Plus className="w-4 h-4" />
-          Add
+        <Button 
+          onClick={handleAddExercise} 
+          className="gap-2"
+          disabled={isAdding} // Disable button while saving
+        >
+          {isAdding ? 'Adding...' : (
+            <>
+              <Plus className="w-4 h-4" />
+              Add
+            </>
+          )}
         </Button>
       </div>
 
