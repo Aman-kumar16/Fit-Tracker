@@ -7,7 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 
-import Index from "./pages/Index";
+import Dashboard from "./pages/Dashboard";
 import DebugFirebase from "./pages/DebugFirebase";
 import NotFound from "./pages/NotFound";
 import Login from "./pages/Login";
@@ -38,7 +38,7 @@ const App = () => {
           <Routes>
             {user ? (
               <>
-                <Route path="/" element={<Index />} />
+                <Route path="/" element={<Dashboard />} />
                 <Route path="/debug" element={<DebugFirebase />} />
                 <Route path="*" element={<NotFound />} />
               </>
