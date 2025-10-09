@@ -55,6 +55,7 @@ export const WorkoutLogger = () => {
   const [loading, setLoading] = useState(true);
   const { mutate: removeExerciseMutation, isPending: isRemoving } =
     useRemoveExerciseFromLog();
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
 
   // ---------------------------------------------------------------------
   // V2.0 DATA LOADING FOR LOGGED EXERCISES
@@ -378,7 +379,9 @@ export const WorkoutLogger = () => {
     <div className="space-y-6">
       {/* Date Picker (Remains the same) */}
       <div className="flex items-center justify-between">
-        <Popover>
+        <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
+          {" "}
+          {/* ⬅️ Control Popover State */}
           <PopoverTrigger asChild>
             <Button variant="outline" className="gap-2">
               <CalendarIcon className="w-4 h-4" />
@@ -389,8 +392,21 @@ export const WorkoutLogger = () => {
             <Calendar
               mode="single"
               selected={selectedDate}
-              onSelect={(date) => date && setSelectedDate(date)}
+              onSelect={(date) => {
+                if (date) {
+                  setSelectedDate(date);
+                  setIsCalendarOpen(false); // ⬅️ VITAL FIX: Close the calendar
+                }
+              }}
               initialFocus
+              classNames={{
+                day_selected:
+                  "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground **rounded-full**",
+                // OPTIONAL: Target the focus/hover ring style to ensure roundness
+                day_range_middle:
+                  "hover:bg-accent hover:text-accent-foreground **rounded-none**",
+                day_today: "bg-accent text-accent-foreground **rounded-full**",
+              }}
               className={cn("p-3 pointer-events-auto")}
             />
           </PopoverContent>
