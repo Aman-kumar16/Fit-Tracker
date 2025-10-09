@@ -29,19 +29,75 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useRemoveExerciseFromLog } from "@/hooks/useRemoveExerciseFromLog";
 
 export const WorkoutLogger = () => {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [exercises, setExercises] = useState<Exercise[]>([]);
-  const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(
-    null
-  );
+
+  // V2.0 RENAMED STATE: Master list of all available exercises
+  const [availableExercises, setAvailableExercises] = useState<Exercise[]>([]);
+
+  // V2.0 NEW STATE: Exercises already logged for the selected date
+  const [loggedExercises, setLoggedExercises] = useState<Exercise[]>([]);
+
+  // V2.0 NEW STATE: The specific exercise the user is currently editing
+  const [exerciseToLog, setExerciseToLog] = useState<Exercise | null>(null);
+
   const [sets, setSets] = useState<WorkoutSet[]>([]);
   const [lastRecord, setLastRecord] = useState<LastRecord | null>(null);
   const [loading, setLoading] = useState(true);
+  const { mutate: removeExerciseMutation, isPending: isRemoving } =
+    useRemoveExerciseFromLog();
+
+  // ---------------------------------------------------------------------
+  // V2.0 DATA LOADING FOR LOGGED EXERCISES
+  // ---------------------------------------------------------------------
+
+  const loadLoggedExercises = useCallback(async () => {
+    const dateStr = format(selectedDate, "yyyy-MM-dd");
+
+    try {
+      const exercisesSubcollectionRef = collection(
+        db,
+        "workouts",
+        dateStr,
+        "exercises"
+      );
+      const snapshot = await getDocs(exercisesSubcollectionRef);
+
+      const loggedList = snapshot.docs.map((doc) => {
+        return {
+          id: doc.id,
+          name: doc.data().exerciseName || "Unknown Exercise",
+          createdAt: new Date(),
+        } as Exercise;
+      });
+
+      setLoggedExercises(loggedList);
+    } catch (error) {
+      console.error("Error loading logged exercises:", error);
+      setLoggedExercises([]);
+    }
+  }, [selectedDate]);
+
+  // ---------------------------------------------------------------------
+  // DATA LOADING: Load Sets for the currently active exercise (V2.0 UPDATED)
+  // ---------------------------------------------------------------------
 
   const loadWorkoutForDate = useCallback(async () => {
-    if (!selectedExercise) return;
+    // Uses V2.0 state
+    if (!exerciseToLog) {
+      // Initialize with a default empty set if nothing is found
+      setSets([{ weight: 0, reps: 0, timestamp: new Date() }]);
+      return;
+    }
 
     const dateStr = format(selectedDate, "yyyy-MM-dd");
     try {
@@ -50,7 +106,7 @@ export const WorkoutLogger = () => {
         "workouts",
         dateStr,
         "exercises",
-        selectedExercise.id
+        exerciseToLog.id
       );
       const snapshot = await getDocs(collection(workoutRef, "sets"));
 
@@ -62,18 +118,26 @@ export const WorkoutLogger = () => {
         }));
         setSets(loadedSets);
       } else {
+        // If nothing is saved, start with one empty set
         setSets([{ weight: 0, reps: 0, timestamp: new Date() }]);
       }
     } catch (error) {
       console.error("Error loading workout:", error);
       setSets([{ weight: 0, reps: 0, timestamp: new Date() }]);
     }
-  }, [selectedExercise, selectedDate, setSets]);
+  }, [exerciseToLog, selectedDate, setSets]);
+
+  // ---------------------------------------------------------------------
+  // DATA LOADING: Load Last Record for the active exercise (V2.0 UPDATED)
+  // ---------------------------------------------------------------------
 
   const loadLastRecord = useCallback(async () => {
-    if (!selectedExercise) return;
+    // Uses V2.0 state
+    if (!exerciseToLog) {
+      setLastRecord(null);
+      return;
+    }
 
-    // currentDateStr is derived from selectedDate, so selectedDate is a dependency.
     const currentDateStr = format(selectedDate, "yyyy-MM-dd");
 
     try {
@@ -90,14 +154,12 @@ export const WorkoutLogger = () => {
 
       // Find the most recent workout with this exercise
       for (const workoutDoc of snapshot.docs) {
-        // ... (Firestore logic remains the same) ...
-
         const exerciseRef = doc(
           db,
           "workouts",
           workoutDoc.id,
           "exercises",
-          selectedExercise.id // Uses selectedExercise
+          exerciseToLog.id
         );
         const setsSnapshot = await getDocs(collection(exerciseRef, "sets"));
 
@@ -109,7 +171,6 @@ export const WorkoutLogger = () => {
           }));
 
           setLastRecord({
-            // Uses setLastRecord
             date: workoutDoc.id,
             sets: previousSets,
           });
@@ -117,29 +178,18 @@ export const WorkoutLogger = () => {
         }
       }
 
-      setLastRecord(null); // Uses setLastRecord
+      setLastRecord(null);
     } catch (error) {
       console.error("Error loading last record:", error);
-      setLastRecord(null); // Uses setLastRecord
+      setLastRecord(null);
     }
-  }, [
-    selectedExercise, // Required because the function uses selectedExercise.id
-    selectedDate, // Required because the function uses selectedDate to calculate currentDateStr
-    setLastRecord, // Required because the function calls this setter
-  ]);
+  }, [exerciseToLog, selectedDate, setLastRecord]);
 
-  useEffect(() => {
-    loadExercises();
-  }, []);
+  // ---------------------------------------------------------------------
+  // MASTER EXERCISE LIST LOADER (V2.0 RENAMED)
+  // ---------------------------------------------------------------------
 
-  useEffect(() => {
-    if (selectedExercise) {
-      loadWorkoutForDate();
-      loadLastRecord();
-    }
-  }, [selectedExercise, selectedDate, loadWorkoutForDate, loadLastRecord]);
-
-  const loadExercises = async () => {
+  const loadAvailableExercises = async () => {
     try {
       const snapshot = await getDocs(collection(db, "exercises"));
       const exerciseList = snapshot.docs.map((doc) => ({
@@ -147,17 +197,66 @@ export const WorkoutLogger = () => {
         name: doc.data().name,
         createdAt: doc.data().createdAt.toDate(),
       }));
-      setExercises(exerciseList);
+      setAvailableExercises(exerciseList);
     } catch (error) {
-      console.error("Error loading exercises:", error);
+      console.error("Error loading available exercises:", error);
       toast.error("Failed to load exercises");
     } finally {
       setLoading(false);
     }
   };
 
+  // ---------------------------------------------------------------------
+  // USE EFFECT HOOKS
+  // ---------------------------------------------------------------------
+
+  // Load the master list of available exercises once on mount
+  useEffect(() => {
+    loadAvailableExercises();
+  }, []);
+
+  // Primary data loader: runs when date or active exercise changes
+  useEffect(() => {
+    // Always load the list of exercises that are already logged for the date
+    loadLoggedExercises();
+
+    // If the user is currently editing an exercise, load its sets and last record
+    if (exerciseToLog) {
+      loadWorkoutForDate();
+      loadLastRecord();
+    } else {
+      // Reset sets and last record when returning to the summary view
+      setSets([{ weight: 0, reps: 0, timestamp: new Date() }]);
+      setLastRecord(null);
+    }
+  }, [
+    selectedDate,
+    exerciseToLog,
+    loadLoggedExercises,
+    loadWorkoutForDate,
+    loadLastRecord,
+  ]);
+
+  // ---------------------------------------------------------------------
+  // MUTATIONS / HANDLERS
+  // ---------------------------------------------------------------------
+
   const addSet = () => {
-    setSets([...sets, { weight: 0, reps: 0, timestamp: new Date() }]);
+    // V2 UX: Auto-populate with last set's data
+    const lastSet = sets[sets.length - 1];
+    const newSetData = lastSet
+      ? {
+          weight: lastSet.weight,
+          reps: lastSet.reps,
+          timestamp: new Date(),
+        }
+      : {
+          weight: 0,
+          reps: 0,
+          timestamp: new Date(),
+        };
+
+    setSets([...sets, newSetData]);
   };
 
   const removeSet = (index: number) => {
@@ -174,13 +273,23 @@ export const WorkoutLogger = () => {
     setSets(newSets);
   };
 
+  const handleRepInputKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+    index: number
+  ) => {
+    // V2 UX: Quick Add with Enter Key
+    if (index === sets.length - 1 && e.key === "Enter") {
+      e.preventDefault();
+      addSet();
+    }
+  };
+
   const saveWorkout = async () => {
-    if (!selectedExercise || sets.length === 0) return;
+    if (!exerciseToLog || sets.length === 0) return;
 
     const dateStr = format(selectedDate, "yyyy-MM-dd");
 
     try {
-      // Save workout metadata
       await setDoc(
         doc(db, "workouts", dateStr),
         {
@@ -196,14 +305,13 @@ export const WorkoutLogger = () => {
         "workouts",
         dateStr,
         "exercises",
-        selectedExercise.id
+        exerciseToLog.id
       );
       await setDoc(exerciseRef, {
-        exerciseName: selectedExercise.name,
+        exerciseName: exerciseToLog.name,
         updatedAt: new Date(),
       });
 
-      // Save sets
       for (let i = 0; i < sets.length; i++) {
         await setDoc(doc(exerciseRef, "sets", `set-${i}`), {
           ...sets[i],
@@ -211,11 +319,47 @@ export const WorkoutLogger = () => {
         });
       }
 
+      // V2.0 UI FIX: Go back to the summary view after saving
+      setExerciseToLog(null);
+      // V2.0 UI FIX: Force refresh of the logged list
+      loadLoggedExercises();
+
       toast.success("Workout saved!");
     } catch (error) {
       console.error("Error saving workout:", error);
       toast.error("Failed to save workout");
     }
+  };
+
+  const handleRemoveExercise = (exerciseId: string) => {
+    const dateStr = format(selectedDate, "yyyy-MM-dd");
+
+    // Optional: Add a simple confirmation dialog (using browser confirm for quick fix)
+    if (
+      !window.confirm(
+        `Are you sure you want to remove this exercise from the log for ${format(
+          selectedDate,
+          "PPP"
+        )}?`
+      )
+    ) {
+      return;
+    }
+
+    removeExerciseMutation(
+      { dateStr, exerciseId },
+      {
+        onSuccess: () => {
+          loadLoggedExercises();
+          toast.success("Exercise removed from log!");
+          // loadLoggedExercises will run automatically via the useEffect/state change flow
+        },
+        onError: (error) => {
+          console.error("Error removing exercise:", error);
+          toast.error("Failed to remove exercise from log.");
+        },
+      }
+    );
   };
 
   if (loading) {
@@ -226,8 +370,13 @@ export const WorkoutLogger = () => {
     );
   }
 
+  // ---------------------------------------------------------------------
+  // RENDER LOGIC (V2.0 Daily Summary / Exercise Detail)
+  // ---------------------------------------------------------------------
+
   return (
     <div className="space-y-6">
+      {/* Date Picker (Remains the same) */}
       <div className="flex items-center justify-between">
         <Popover>
           <PopoverTrigger asChild>
@@ -248,36 +397,16 @@ export const WorkoutLogger = () => {
         </Popover>
       </div>
 
-      {!selectedExercise ? (
-        <div className="grid gap-3">
-          <h3 className="text-lg font-semibold">Select an exercise to log</h3>
-          {exercises.length === 0 ? (
-            <Card className="p-8 text-center bg-card border-border">
-              <p className="text-muted-foreground">
-                No exercises available. Add exercises first!
-              </p>
-            </Card>
-          ) : (
-            exercises.map((exercise) => (
-              <Card
-                key={exercise.id}
-                className="p-4 bg-card border-border hover:border-primary cursor-pointer transition-all"
-                onClick={() => setSelectedExercise(exercise)}
-              >
-                <span className="font-semibold">{exercise.name}</span>
-              </Card>
-            ))
-          )}
-        </div>
-      ) : (
+      {exerciseToLog ? ( // Condition 1: User is logging/editing a specific exercise
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-2xl font-bold">{selectedExercise.name}</h3>
-            <Button variant="outline" onClick={() => setSelectedExercise(null)}>
-              Change Exercise
+            <h3 className="text-2xl font-bold">{exerciseToLog.name}</h3>
+            <Button variant="outline" onClick={() => setExerciseToLog(null)}>
+              Back to Log
             </Button>
           </div>
 
+          {/* Last Record Card (Uses V2.0 state) */}
           {lastRecord && (
             <Card className="p-4 bg-accent/20 border-accent">
               <div className="flex items-center gap-2 mb-2">
@@ -297,6 +426,7 @@ export const WorkoutLogger = () => {
             </Card>
           )}
 
+          {/* Sets Logging Card (Remains the same) */}
           <Card className="p-4 bg-card border-border">
             <div className="space-y-3">
               <div className="grid grid-cols-[auto,1fr,1fr,auto] gap-3 items-center font-semibold text-sm text-muted-foreground">
@@ -333,6 +463,8 @@ export const WorkoutLogger = () => {
                     onChange={(e) =>
                       updateSet(index, "reps", parseInt(e.target.value) || 0)
                     }
+                    // V2 UX: Quick Add
+                    onKeyDown={(e) => handleRepInputKeyDown(e, index)}
                     className="bg-secondary border-border text-center text-lg font-semibold"
                     placeholder="0"
                   />
@@ -361,6 +493,105 @@ export const WorkoutLogger = () => {
           <Button onClick={saveWorkout} className="w-full" size="lg">
             Save Workout
           </Button>
+        </div>
+      ) : (
+        // Condition 2: User is viewing the daily summary
+        <div className="space-y-6">
+          {/* Dropdown Selector to ADD NEW Exercise */}
+          <h4 className="text-lg font-semibold mt-6">
+            {loggedExercises.length > 0
+              ? "Add Another Exercise"
+              : "Start Logging"}
+          </h4>
+          <Select
+            onValueChange={(exerciseId) => {
+              const exercise = availableExercises.find(
+                (ex) => ex.id === exerciseId
+              );
+              if (exercise) {
+                setExerciseToLog(exercise); // ⬅️ Sets the exercise to start logging
+              }
+            }}
+            disabled={availableExercises.length === 0}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue
+                placeholder={
+                  availableExercises.length === 0
+                    ? "No exercises available"
+                    : "Choose Exercise..."
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {availableExercises
+                .filter(
+                  (ex) =>
+                    !loggedExercises.some((loggedEx) => loggedEx.id === ex.id)
+                ) // Filter out already logged exercises
+                .map((exercise) => (
+                  <SelectItem key={exercise.id} value={exercise.id}>
+                    {exercise.name}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+
+          <h3 className="text-xl font-bold">
+            Exercises on {format(selectedDate, "PPP")}
+          </h3>
+
+          {/* Display Logged Exercises (Logged Exercises List) */}
+          {loggedExercises.length > 0 ? (
+            <Card className="p-4 space-y-3">
+              {/* Logged Exercise Cards */}
+              {loggedExercises.map((exercise) => (
+                <div
+                  key={exercise.id}
+                  className="flex items-center justify-between p-0" // New container for flex layout
+                >
+                  <Card
+                    // Make the Card the clickable part to load the sets
+                    className="flex-grow p-4 bg-secondary border-border hover:border-primary cursor-pointer transition-all"
+                    onClick={() => setExerciseToLog(exercise)}
+                  >
+                    <span className="font-semibold">{exercise.name}</span>
+                  </Card>
+
+                  {/* DELETE BUTTON: Always visible on the right */}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="w-10 h-10 text-muted-foreground hover:text-red-500 ml-2"
+                    onClick={(e) => {
+                      e.stopPropagation(); // Prevent the card's onClick from firing
+                      handleRemoveExercise(exercise.id);
+                    }}
+                    disabled={isRemoving}
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </Button>
+                </div>
+              ))}
+            </Card>
+          ) : (
+            // NEW MESSAGE BLOCK: Only shows if loggedExercises.length is 0
+            <Card className="p-8 text-center bg-card border-border">
+              <p className="text-muted-foreground">
+                No workouts logged for this date. Use dropdown above to get
+                started!
+              </p>
+            </Card>
+          )}
+
+          {/* No Exercises Available Message */}
+          {availableExercises.length === 0 && (
+            <Card className="p-8 text-center bg-card border-border">
+              <p className="text-muted-foreground">
+                Go to the Exercises tab to add your first one.
+              </p>
+            </Card>
+          )}
         </div>
       )}
     </div>
