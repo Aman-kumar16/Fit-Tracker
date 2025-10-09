@@ -36,6 +36,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useRemoveExerciseFromLog } from "@/hooks/useRemoveExerciseFromLog";
 
 export const WorkoutLogger = () => {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -52,6 +53,8 @@ export const WorkoutLogger = () => {
   const [sets, setSets] = useState<WorkoutSet[]>([]);
   const [lastRecord, setLastRecord] = useState<LastRecord | null>(null);
   const [loading, setLoading] = useState(true);
+  const { mutate: removeExerciseMutation, isPending: isRemoving } =
+    useRemoveExerciseFromLog();
 
   // ---------------------------------------------------------------------
   // V2.0 DATA LOADING FOR LOGGED EXERCISES
@@ -328,6 +331,37 @@ export const WorkoutLogger = () => {
     }
   };
 
+  const handleRemoveExercise = (exerciseId: string) => {
+    const dateStr = format(selectedDate, "yyyy-MM-dd");
+
+    // Optional: Add a simple confirmation dialog (using browser confirm for quick fix)
+    if (
+      !window.confirm(
+        `Are you sure you want to remove this exercise from the log for ${format(
+          selectedDate,
+          "PPP"
+        )}?`
+      )
+    ) {
+      return;
+    }
+
+    removeExerciseMutation(
+      { dateStr, exerciseId },
+      {
+        onSuccess: () => {
+          loadLoggedExercises();
+          toast.success("Exercise removed from log!");
+          // loadLoggedExercises will run automatically via the useEffect/state change flow
+        },
+        onError: (error) => {
+          console.error("Error removing exercise:", error);
+          toast.error("Failed to remove exercise from log.");
+        },
+      }
+    );
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -512,20 +546,40 @@ export const WorkoutLogger = () => {
             <Card className="p-4 space-y-3">
               {/* Logged Exercise Cards */}
               {loggedExercises.map((exercise) => (
-                <Card
+                <div
                   key={exercise.id}
-                  className="p-4 bg-secondary border-border hover:border-primary cursor-pointer transition-all"
-                  onClick={() => setExerciseToLog(exercise)} // Sets the exercise to edit
+                  className="flex items-center justify-between p-0" // New container for flex layout
                 >
-                  <span className="font-semibold">{exercise.name}</span>
-                </Card>
+                  <Card
+                    // Make the Card the clickable part to load the sets
+                    className="flex-grow p-4 bg-secondary border-border hover:border-primary cursor-pointer transition-all"
+                    onClick={() => setExerciseToLog(exercise)}
+                  >
+                    <span className="font-semibold">{exercise.name}</span>
+                  </Card>
+
+                  {/* DELETE BUTTON: Always visible on the right */}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="w-10 h-10 text-muted-foreground hover:text-red-500 ml-2"
+                    onClick={(e) => {
+                      e.stopPropagation(); // Prevent the card's onClick from firing
+                      handleRemoveExercise(exercise.id);
+                    }}
+                    disabled={isRemoving}
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </Button>
+                </div>
               ))}
             </Card>
           ) : (
-            // ⬅️ NEW MESSAGE BLOCK: Only shows if loggedExercises.length is 0
+            // NEW MESSAGE BLOCK: Only shows if loggedExercises.length is 0
             <Card className="p-8 text-center bg-card border-border">
               <p className="text-muted-foreground">
-                No workouts logged for this date. Use dropdown above to get started!
+                No workouts logged for this date. Use dropdown above to get
+                started!
               </p>
             </Card>
           )}
