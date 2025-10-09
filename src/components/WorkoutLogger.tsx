@@ -39,16 +39,16 @@ import {
 
 export const WorkoutLogger = () => {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  
+
   // V2.0 RENAMED STATE: Master list of all available exercises
-  const [availableExercises, setAvailableExercises] = useState<Exercise[]>([]); 
-  
+  const [availableExercises, setAvailableExercises] = useState<Exercise[]>([]);
+
   // V2.0 NEW STATE: Exercises already logged for the selected date
-  const [loggedExercises, setLoggedExercises] = useState<Exercise[]>([]); 
-  
+  const [loggedExercises, setLoggedExercises] = useState<Exercise[]>([]);
+
   // V2.0 NEW STATE: The specific exercise the user is currently editing
-  const [exerciseToLog, setExerciseToLog] = useState<Exercise | null>(null); 
-  
+  const [exerciseToLog, setExerciseToLog] = useState<Exercise | null>(null);
+
   const [sets, setSets] = useState<WorkoutSet[]>([]);
   const [lastRecord, setLastRecord] = useState<LastRecord | null>(null);
   const [loading, setLoading] = useState(true);
@@ -59,26 +59,30 @@ export const WorkoutLogger = () => {
 
   const loadLoggedExercises = useCallback(async () => {
     const dateStr = format(selectedDate, "yyyy-MM-dd");
-    
+
     try {
-        const exercisesSubcollectionRef = collection(db, "workouts", dateStr, "exercises");
-        const snapshot = await getDocs(exercisesSubcollectionRef);
+      const exercisesSubcollectionRef = collection(
+        db,
+        "workouts",
+        dateStr,
+        "exercises"
+      );
+      const snapshot = await getDocs(exercisesSubcollectionRef);
 
-        const loggedList = snapshot.docs.map(doc => {
-            return {
-                id: doc.id,
-                name: doc.data().exerciseName || 'Unknown Exercise', 
-                createdAt: new Date(), 
-            } as Exercise;
-        });
+      const loggedList = snapshot.docs.map((doc) => {
+        return {
+          id: doc.id,
+          name: doc.data().exerciseName || "Unknown Exercise",
+          createdAt: new Date(),
+        } as Exercise;
+      });
 
-        setLoggedExercises(loggedList);
-
+      setLoggedExercises(loggedList);
     } catch (error) {
-        console.error("Error loading logged exercises:", error);
-        setLoggedExercises([]);
+      console.error("Error loading logged exercises:", error);
+      setLoggedExercises([]);
     }
-}, [selectedDate]);
+  }, [selectedDate]);
 
   // ---------------------------------------------------------------------
   // DATA LOADING: Load Sets for the currently active exercise (V2.0 UPDATED)
@@ -86,7 +90,7 @@ export const WorkoutLogger = () => {
 
   const loadWorkoutForDate = useCallback(async () => {
     // Uses V2.0 state
-    if (!exerciseToLog) { 
+    if (!exerciseToLog) {
       // Initialize with a default empty set if nothing is found
       setSets([{ weight: 0, reps: 0, timestamp: new Date() }]);
       return;
@@ -112,7 +116,7 @@ export const WorkoutLogger = () => {
         setSets(loadedSets);
       } else {
         // If nothing is saved, start with one empty set
-        setSets([{ weight: 0, reps: 0, timestamp: new Date() }]); 
+        setSets([{ weight: 0, reps: 0, timestamp: new Date() }]);
       }
     } catch (error) {
       console.error("Error loading workout:", error);
@@ -126,7 +130,7 @@ export const WorkoutLogger = () => {
 
   const loadLastRecord = useCallback(async () => {
     // Uses V2.0 state
-    if (!exerciseToLog) { 
+    if (!exerciseToLog) {
       setLastRecord(null);
       return;
     }
@@ -211,19 +215,24 @@ export const WorkoutLogger = () => {
   // Primary data loader: runs when date or active exercise changes
   useEffect(() => {
     // Always load the list of exercises that are already logged for the date
-    loadLoggedExercises(); 
-    
+    loadLoggedExercises();
+
     // If the user is currently editing an exercise, load its sets and last record
-    if (exerciseToLog) { 
+    if (exerciseToLog) {
       loadWorkoutForDate();
       loadLastRecord();
     } else {
-       // Reset sets and last record when returning to the summary view
-       setSets([{ weight: 0, reps: 0, timestamp: new Date() }]);
-       setLastRecord(null);
+      // Reset sets and last record when returning to the summary view
+      setSets([{ weight: 0, reps: 0, timestamp: new Date() }]);
+      setLastRecord(null);
     }
-    
-  }, [selectedDate, exerciseToLog, loadLoggedExercises, loadWorkoutForDate, loadLastRecord]);
+  }, [
+    selectedDate,
+    exerciseToLog,
+    loadLoggedExercises,
+    loadWorkoutForDate,
+    loadLastRecord,
+  ]);
 
   // ---------------------------------------------------------------------
   // MUTATIONS / HANDLERS
@@ -232,17 +241,17 @@ export const WorkoutLogger = () => {
   const addSet = () => {
     // V2 UX: Auto-populate with last set's data
     const lastSet = sets[sets.length - 1];
-    const newSetData = lastSet 
-        ? { 
-            weight: lastSet.weight, 
-            reps: lastSet.reps, 
-            timestamp: new Date() 
-          }
-        : { 
-            weight: 0, 
-            reps: 0, 
-            timestamp: new Date() 
-          };
+    const newSetData = lastSet
+      ? {
+          weight: lastSet.weight,
+          reps: lastSet.reps,
+          timestamp: new Date(),
+        }
+      : {
+          weight: 0,
+          reps: 0,
+          timestamp: new Date(),
+        };
 
     setSets([...sets, newSetData]);
   };
@@ -260,18 +269,20 @@ export const WorkoutLogger = () => {
     newSets[index] = { ...newSets[index], [field]: value };
     setSets(newSets);
   };
-  
-  const handleRepInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, index: number) => {
-      // V2 UX: Quick Add with Enter Key
-      if (index === sets.length - 1 && e.key === 'Enter') {
-          e.preventDefault(); 
-          addSet();          
-      }
+
+  const handleRepInputKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+    index: number
+  ) => {
+    // V2 UX: Quick Add with Enter Key
+    if (index === sets.length - 1 && e.key === "Enter") {
+      e.preventDefault();
+      addSet();
+    }
   };
 
-
   const saveWorkout = async () => {
-    if (!exerciseToLog || sets.length === 0) return; 
+    if (!exerciseToLog || sets.length === 0) return;
 
     const dateStr = format(selectedDate, "yyyy-MM-dd");
 
@@ -299,16 +310,16 @@ export const WorkoutLogger = () => {
       });
 
       for (let i = 0; i < sets.length; i++) {
-        await setDoc(doc(exerciseRef, "sets", `set-${i}`), { 
+        await setDoc(doc(exerciseRef, "sets", `set-${i}`), {
           ...sets[i],
           timestamp: new Date(),
         });
       }
-      
+
       // V2.0 UI FIX: Go back to the summary view after saving
-      setExerciseToLog(null); 
+      setExerciseToLog(null);
       // V2.0 UI FIX: Force refresh of the logged list
-      loadLoggedExercises(); 
+      loadLoggedExercises();
 
       toast.success("Workout saved!");
     } catch (error) {
@@ -367,7 +378,8 @@ export const WorkoutLogger = () => {
               <div className="flex items-center gap-2 mb-2">
                 <TrendingUp className="w-4 h-4 text-accent" />
                 <span className="font-semibold text-accent">
-                  Last Record ({format(new Date(lastRecord.date), "MMM d, yyyy")})
+                  Last Record (
+                  {format(new Date(lastRecord.date), "MMM d, yyyy")})
                 </span>
               </div>
               <div className="space-y-1 text-sm">
@@ -448,16 +460,20 @@ export const WorkoutLogger = () => {
             Save Workout
           </Button>
         </div>
-      ) : ( // Condition 2: User is viewing the daily summary
+      ) : (
+        // Condition 2: User is viewing the daily summary
         <div className="space-y-6">
-
           {/* Dropdown Selector to ADD NEW Exercise */}
           <h4 className="text-lg font-semibold mt-6">
-            {loggedExercises.length > 0 ? 'Add Another Exercise' : 'Start Logging'}
+            {loggedExercises.length > 0
+              ? "Add Another Exercise"
+              : "Start Logging"}
           </h4>
           <Select
             onValueChange={(exerciseId) => {
-              const exercise = availableExercises.find(ex => ex.id === exerciseId);
+              const exercise = availableExercises.find(
+                (ex) => ex.id === exerciseId
+              );
               if (exercise) {
                 setExerciseToLog(exercise); // ⬅️ Sets the exercise to start logging
               }
@@ -465,11 +481,20 @@ export const WorkoutLogger = () => {
             disabled={availableExercises.length === 0}
           >
             <SelectTrigger className="w-full">
-              <SelectValue placeholder={availableExercises.length === 0 ? "No exercises available" : "Choose Exercise..."} />
+              <SelectValue
+                placeholder={
+                  availableExercises.length === 0
+                    ? "No exercises available"
+                    : "Choose Exercise..."
+                }
+              />
             </SelectTrigger>
             <SelectContent>
               {availableExercises
-                .filter(ex => !loggedExercises.some(loggedEx => loggedEx.id === ex.id)) // Filter out already logged exercises
+                .filter(
+                  (ex) =>
+                    !loggedExercises.some((loggedEx) => loggedEx.id === ex.id)
+                ) // Filter out already logged exercises
                 .map((exercise) => (
                   <SelectItem key={exercise.id} value={exercise.id}>
                     {exercise.name}
@@ -478,28 +503,39 @@ export const WorkoutLogger = () => {
             </SelectContent>
           </Select>
 
-          <h3 className="text-xl font-bold"> Exercises done on {format(selectedDate, "PPP")}</h3>
+          <h3 className="text-xl font-bold">
+            Exercises on {format(selectedDate, "PPP")}
+          </h3>
 
           {/* Display Logged Exercises (Logged Exercises List) */}
-          {loggedExercises.length > 0 && (
+          {loggedExercises.length > 0 ? (
             <Card className="p-4 space-y-3">
-              {/* <h4 className="text-lg font-semibold">Logged Exercises</h4> */}
-              {loggedExercises.map(exercise => (
+              {/* Logged Exercise Cards */}
+              {loggedExercises.map((exercise) => (
                 <Card
                   key={exercise.id}
                   className="p-4 bg-secondary border-border hover:border-primary cursor-pointer transition-all"
-                  onClick={() => setExerciseToLog(exercise)} // ⬅️ Sets the exercise to edit
+                  onClick={() => setExerciseToLog(exercise)} // Sets the exercise to edit
                 >
                   <span className="font-semibold">{exercise.name}</span>
                 </Card>
               ))}
             </Card>
+          ) : (
+            // ⬅️ NEW MESSAGE BLOCK: Only shows if loggedExercises.length is 0
+            <Card className="p-8 text-center bg-card border-border">
+              <p className="text-muted-foreground">
+                No workouts logged for this date. Use dropdown above to get started!
+              </p>
+            </Card>
           )}
-          
+
           {/* No Exercises Available Message */}
           {availableExercises.length === 0 && (
             <Card className="p-8 text-center bg-card border-border">
-              <p className="text-muted-foreground">Go to the Exercises tab to add your first one.</p>
+              <p className="text-muted-foreground">
+                Go to the Exercises tab to add your first one.
+              </p>
             </Card>
           )}
         </div>
