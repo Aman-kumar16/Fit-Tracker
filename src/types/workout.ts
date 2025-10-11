@@ -2,6 +2,7 @@ export interface Exercise {
   id: string;
   name: string;
   createdAt: Date;
+  orderIndex?:number;
 }
 
 export interface WorkoutSet {
